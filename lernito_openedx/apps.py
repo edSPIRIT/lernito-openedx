@@ -16,7 +16,7 @@ class LernitoOpenedxConfig(AppConfig):
 
     name = app_name
     verbose_name = app_name_verbose
-    
+
     # Configure the app as a Plugin App
     plugin_app = {
         "url_config": {
