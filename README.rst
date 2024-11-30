@@ -17,20 +17,24 @@ Please see the Open edX documentation for `guidance on Python development`_ in t
 
 .. _guidance on Python development: https://docs.openedx.org/en/latest/developers/how-tos/get-ready-for-python-dev.html
 
-Deploying
-*********
+Installation
+************
 
-To deploy this component in your Open edX instance:
+To install this component in your Open edX instance:
 
-1. Install the package using pip:
+1. Add the package to the requirements:
 
    .. code-block:: bash
 
-       pip install lernito-openedx
+       tutor config save --append OPENEDX_EXTRA_PIP_REQUIREMENTS=git+https://github.com/edSPIRIT/lernito-openedx.git
 
-2. Add required configuration:
+2. Save the secret in Tutor config:
 
-   You need to configure ``LERNITO_WEBHOOK_SECRET`` in your Django settings. This can be done in two ways:
+   .. code-block:: bash
+
+       tutor config save -s LERNITO_WEBHOOK_SECRET=YOUR_SECRET
+
+3. You need to configure ``LERNITO_WEBHOOK_SECRET`` in your Django settings. This can be done in two ways:
 
    - For Tutor-managed installations:
      Create a Tutor plugin that adds the required setting:
@@ -49,15 +53,163 @@ To deploy this component in your Open edX instance:
    - For non-Tutor installations:
      Add the setting directly to your Django settings file.
 
-3. Add the application to your INSTALLED_APPS:
+4. build the image and run the container:
 
-   .. code-block:: python
+   .. code-block:: bash
 
-       INSTALLED_APPS = [
-           ...
-           'lernito_openedx',
-           ...
-       ]
+       tutor images build openedx  # or openedx-dev for local development
+       tutor dev|local|k8s start
+
+Webhook API Documentation
+***********************
+
+The webhook endpoint accepts POST requests for enrolling users in courses. It handles both existing and new users.
+
+Endpoint
+========
+
+``POST /api/lernito/webhook/``
+
+Request Headers
+==============
+
+- ``X-Lernito-Signature``: HMAC SHA256 signature of the request payload
+- ``Content-Type: application/json``
+
+Request Body
+===========
+
+.. code-block:: json
+
+    {
+        "email": "user@example.com",
+        "name": "First",
+        "family": "Last",
+        "username": "username",
+        "courseIds": ["course-v1:edX+DemoX+Demo_Course"]
+    }
+
+Response Scenarios
+================
+
+1. Successful Enrollment (200 OK)
+--------------------------------
+
+For existing users:
+
+.. code-block:: json
+
+    {
+        "success": true,
+        "message": "User enrollment status verified for 2 course(s)"
+    }
+
+For new users:
+
+.. code-block:: json
+
+    {
+        "success": true,
+        "message": "Enrollment allowance verified for 2 course(s)"
+    }
+
+2. Authentication Errors (401 UNAUTHORIZED)
+----------------------------------------
+
+Invalid signature:
+
+.. code-block:: json
+
+    {
+        "success": false,
+        "message": "Invalid signature"
+    }
+
+3. Validation Errors (400 BAD REQUEST)
+------------------------------------
+
+Invalid course:
+
+.. code-block:: json
+
+    {
+        "success": false,
+        "message": "Course course-v1:edX+DemoX+Demo_Course does not exist"
+    }
+
+Invalid course format:
+
+.. code-block:: json
+
+    {
+        "success": false,
+        "message": "Invalid course key format: invalid-course-id"
+    }
+
+Missing required fields:
+
+.. code-block:: json
+
+    {
+        "success": false,
+        "message": {
+            "email": ["This field is required"],
+            "courseIds": ["This field is required"]
+        }
+    }
+
+4. Server Errors (500 INTERNAL SERVER ERROR)
+-----------------------------------------
+
+.. code-block:: json
+
+    {
+        "success": false,
+        "message": "Internal server error"
+    }
+
+Behavior
+========
+
+The API is idempotent, meaning:
+
+- For existing users: It will enroll them in courses if not already enrolled
+- For new users: It will create enrollment permissions that activate upon registration
+- Multiple identical requests will produce the same result without creating duplicates
+- Each request verifies and ensures the enrollment status is correct
+
+Testing
+=======
+
+You can test the webhook using the following Python script to generate a valid signature:
+
+.. code-block:: python
+
+    import hmac
+    import hashlib
+    import json
+
+    # Your webhook data
+    data = {
+        "email": "test@example.com",
+        "name": "Test",
+        "family": "User",
+        "username": "testuser",
+        "courseIds": ["course-v1:edX+DemoX+Demo_Course"]
+    }
+
+    # Convert to sorted JSON string
+    data_string = json.dumps(data, sort_keys=True)
+
+    # Generate signature
+    webhook_secret = "your_webhook_secret"
+    signature = hmac.new(
+        webhook_secret.encode('utf-8'),
+        data_string.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+
+    print(f"X-Lernito-Signature: {signature}")
 
 Getting Help
 ************
